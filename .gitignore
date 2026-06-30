@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 *.pyo
+
+# Outil de mainteneur local — NON public (build multi-arch + signature cosign)
+docker-release.sh
