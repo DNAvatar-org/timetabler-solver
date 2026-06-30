@@ -16,4 +16,9 @@ uv run uvicorn server:app --port 8002
 
 ## Licence
 
-Usage non commercial libre. Usage commercial : voir [LICENSE](LICENSE).
+**Apache License 2.0 + Commons Clause** — voir [LICENSE](LICENSE).
+
+- ✅ Libre de forker, modifier, adapter, distribuer — **usage non commercial uniquement**
+- ❌ Usage commercial : licence requise auprès de DNAvatar.org (contact@dnavatar.org)
+
+Copyright 2025-2026 DNAvatar.org — Arnaud Maignan
