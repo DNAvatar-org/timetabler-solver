@@ -12,6 +12,7 @@ import json
 import math
 import os
 import sys
+import time
 from io import StringIO
 from pathlib import Path
 
@@ -35,6 +36,33 @@ STATIC = HERE / "static"
 # Env var TIMETABLER_TOKENS = hashes comma-séparés (pour Docker/CI)
 _TOKENS_FILE = HERE / "tokens_sha256.txt"
 _ALLOWED: set[str] = set()
+
+# TOFU — liaison code ↔ machine (anti-partage). { token_hash: {mid, fp, ip, ts} }
+# Au 1er usage réussi, le code se lie à la machine ; ensuite refusé ailleurs.
+# Pour "libérer" un code (changement de machine) : retirer sa ligne du JSON.
+_BINDINGS_FILE = HERE / "bindings.json"
+_bindings: dict[str, dict] = {}
+
+
+def _load_bindings() -> None:
+    global _bindings
+    if _BINDINGS_FILE.exists():
+        try:
+            _bindings = json.loads(_BINDINGS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            _bindings = {}
+
+
+def _save_bindings() -> None:
+    try:
+        _BINDINGS_FILE.write_text(
+            json.dumps(_bindings, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
+_load_bindings()
 
 _solve_busy = False  # True pendant qu'un CP-SAT tourne
 
@@ -97,6 +125,9 @@ def _save_demo_solve(
     ]
 
 
+_TOKENS_MTIME = -1.0
+
+
 def _load_tokens() -> None:
     _ALLOWED.clear()
     if _TOKENS_FILE.exists():
@@ -109,7 +140,20 @@ def _load_tokens() -> None:
             _ALLOWED.add(t.strip().lower())
 
 
-_load_tokens()
+def _tokens_maybe_reload() -> None:
+    """Relit tokens_sha256.txt à la volée si sa date de modif a changé.
+    Un code ajouté est actif immédiatement, sans redémarrage du serveur."""
+    global _TOKENS_MTIME
+    try:
+        mtime = _TOKENS_FILE.stat().st_mtime if _TOKENS_FILE.exists() else 0.0
+    except OSError:
+        return
+    if mtime != _TOKENS_MTIME:
+        _TOKENS_MTIME = mtime
+        _load_tokens()
+
+
+_tokens_maybe_reload()
 
 ALLOWED_ORIGINS = [
     "https://dnavatar.org",
@@ -138,11 +182,31 @@ async def check_auth(request: Request) -> None:
     if not cf_ip and host in ("127.0.0.1", "::1"):
         return
     # Tout le reste (tunnel Cloudflare ou accès externe) → token obligatoire
+    _tokens_maybe_reload()   # tokens_sha256.txt relu à la volée si modifié
     if not _ALLOWED:
         raise HTTPException(status_code=401, detail="Token requis — aucun token configuré sur le serveur")
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth[7:].lower() not in _ALLOWED:
+    token = auth[7:].lower() if auth.startswith("Bearer ") else ""
+    if not token or token not in _ALLOWED:
         raise HTTPException(status_code=401, detail="Token invalide")
+
+    # TOFU — le code se lie à la 1re machine qui l'utilise, refusé sur les autres.
+    mid = request.headers.get("X-Machine-Id", "").strip()
+    if not mid:
+        raise HTTPException(status_code=403,
+                            detail="Identifiant machine manquant — rafraîchissez la page.")
+    bound = _bindings.get(token)
+    if bound is None:
+        _bindings[token] = {
+            "mid": mid,
+            "fp": request.headers.get("X-Machine-Fp", "").strip(),
+            "ip": cf_ip,
+            "ts": int(time.time()),
+        }
+        _save_bindings()
+    elif bound.get("mid") != mid:
+        raise HTTPException(status_code=403,
+                            detail="Ce code est déjà lié à une autre machine.")
 
 
 app = FastAPI(
@@ -290,6 +354,13 @@ async def health():
     except ImportError:
         ortools_ok = False
     return {"ok": True, "ortools": ortools_ok}
+
+
+@app.get("/api/verify")
+async def verify_code():
+    # Route protégée (hors _PUBLIC_PATHS) : si on arrive ici, check_auth a validé
+    # le token ET la liaison machine (TOFU). Sert au popup pour valider un code.
+    return {"ok": True}
 
 
 @app.post("/api/diagnostic")

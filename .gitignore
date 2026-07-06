@@ -5,3 +5,10 @@ __pycache__/
 
 # Outil de mainteneur local — NON public (build multi-arch + signature cosign)
 docker-release.sh
+tokens_sha256.txt
+bindings.json
+make_demo_cache.py
+make_excel.py
+infeasible_example.py
+planning.html
+issue-code.sh

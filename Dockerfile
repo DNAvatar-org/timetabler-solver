@@ -8,6 +8,7 @@ RUN pip install --no-cache-dir \
     "ortools>=9.14.0" \
     "openpyxl>=3.1.5"
 
+COPY LICENSE ./
 COPY server.py progress.py solve_ecoles.py export_html.py ./
 COPY solver/ solver/
 
