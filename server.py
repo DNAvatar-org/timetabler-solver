@@ -170,7 +170,7 @@ ALLOWED_ORIGINS = [
 _NO_AUTH = bool(os.environ.get("TIMETABLER_NO_AUTH", ""))
 
 
-_PUBLIC_PATHS = {"/api/health", "/api/trajet", "/api/resolve-gmaps"}
+_PUBLIC_PATHS = {"/api/health", "/api/trajet", "/api/resolve-gmaps", "/api/solve", "/api/diagnostic"}
 
 
 async def check_auth(request: Request) -> None:
