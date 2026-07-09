@@ -8,6 +8,7 @@ from pathlib import Path
 from collections import defaultdict
 import base64 as _base64
 import csv as _csv
+import html as _html
 import io
 import urllib.parse
 
@@ -573,6 +574,9 @@ def _tableau_profs(solution: dict, d, t_map: dict, couleurs: dict) -> str:
 </table>"""
 
 
+_PRIO_RANK = {"contrainte": 0, "haute": 1, "moyenne": 2, "basse": 3}
+
+
 def _rapport_preferences(solution: dict, d, t_map: dict) -> str:
     planning_jour: dict[str, set[str]] = defaultdict(set)
     planning_debut: dict[str, set[str]] = defaultdict(set)
@@ -610,8 +614,15 @@ def _rapport_preferences(solution: dict, d, t_map: dict) -> str:
             ok += 1
 
         prio_cls = "prio-haute" if pref.priorite == "haute" else "prio-moyenne"
+        stat_num = "0" if violation else "1"
+        prio_num = str(_PRIO_RANK.get(pref.priorite, 9))
         lignes.append(
-            f'<tr class="{cls}">'
+            f'<tr class="{cls}"'
+            f' data-statut="{stat_num}"'
+            f' data-prof="{_html.escape(prof.nom_complet, quote=True)}"'
+            f' data-type="{_html.escape(pref.type, quote=True)}"'
+            f' data-valeur="{_html.escape(pref.valeur, quote=True)}"'
+            f' data-prio="{prio_num}">'
             f'<td>{statut}</td>'
             f'<td>{_html_nom_prof(prof)}</td>'
             f'<td>{pref.type}</td>'
@@ -625,8 +636,15 @@ def _rapport_preferences(solution: dict, d, t_map: dict) -> str:
              if ko == 0
              else f'<p class="bilan ko">⚠ {ok}/{total} satisfaites — {ko} non validée(s)</p>')
 
-    header = ("<tr><th>Statut</th><th>Professeur</th>"
-              "<th>Type</th><th>Valeur</th><th>Priorité</th></tr>")
+    header = (
+        "<tr>"
+        '<th class="prefs-sort" data-col="statut">Statut ↕</th>'
+        '<th class="prefs-sort" data-col="prof">Professeur ↕</th>'
+        '<th class="prefs-sort" data-col="type">Type ↕</th>'
+        '<th class="prefs-sort" data-col="valeur">Valeur ↕</th>'
+        '<th class="prefs-sort" data-col="prio">Priorité ↕</th>'
+        "</tr>"
+    )
     return f"""
 {bilan}
 <table class="prefs">
@@ -790,6 +808,8 @@ def generer_html(solution: dict, d, output: Path, score: float = 0.0,
 
   .prefs {{ border-collapse: collapse; width: 100%; font-size: .82em; margin-top: 10px; }}
   .prefs th {{ background: #2d5986; color: #fff; padding: 6px 8px; }}
+  .prefs th.prefs-sort {{ cursor: pointer; user-select: none; }}
+  .prefs th.prefs-sort:hover {{ background: #234a6e; }}
   .prefs td {{ border: 1px solid #ddd; padding: 5px 8px; }}
   .prefs .ok  {{ background: #f0fff4; }}
   .prefs .ko  {{ background: #fff5f5; }}
@@ -945,6 +965,39 @@ function printProfs() {{
   }});
   document.body.classList.remove('printing-profs');
 }}
+function initPrefsSort() {{
+  var table = document.querySelector('table.prefs');
+  if (!table) return;
+  var st = {{ col: 'statut', dir: 1 }};
+  var labels = {{ statut: 'Statut', prof: 'Professeur', type: 'Type', valeur: 'Valeur', prio: 'Priorité' }};
+  function cmp(a, b) {{
+    var va = a.dataset[st.col] || '';
+    var vb = b.dataset[st.col] || '';
+    var c = 0;
+    if (st.col === 'statut' || st.col === 'prio') c = (parseInt(va, 10) || 0) - (parseInt(vb, 10) || 0);
+    else c = String(va).localeCompare(String(vb), 'fr');
+    return c * st.dir;
+  }}
+  function sortRows() {{
+    var tbody = table.querySelector('tbody');
+    Array.from(tbody.querySelectorAll('tr')).sort(cmp).forEach(function(r) {{ tbody.appendChild(r); }});
+    table.querySelectorAll('th.prefs-sort').forEach(function(th) {{
+      var col = th.dataset.col;
+      var arrow = col === st.col ? (st.dir > 0 ? ' ▲' : ' ▼') : ' ↕';
+      th.textContent = labels[col] + arrow;
+    }});
+  }}
+  table.querySelectorAll('th.prefs-sort').forEach(function(th) {{
+    th.onclick = function() {{
+      var col = th.dataset.col;
+      if (st.col === col) st.dir *= -1;
+      else {{ st.col = col; st.dir = 1; }}
+      sortRows();
+    }};
+  }});
+  sortRows();
+}}
+initPrefsSort();
 </script>
 <script src="https://dnavatar.org/_interfaces/kill-native-tooltip.js"></script>
 <script src="https://dnavatar.org/_interfaces/tooltips.js"></script>

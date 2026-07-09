@@ -24,9 +24,11 @@ from solver.constants import (
 )
 from solver.donnees import DonneesCollege, DistanceEtab, Preference
 from solver.prefs_cp import (
+    _contrainte_debut_pas_avant,
     _contrainte_max_heures_consec,
     _penalite_et,
     _penalite_ou,
+    message_contraintes_violees_apres_solve,
 )
 from solver.pre_assign import pre_assigner_profs
 from solver.probe_edt import message_infaisable_resoudre, verifier_creneaux_profs_disponibles
@@ -194,6 +196,16 @@ def resoudre(d: DonneesCollege) -> tuple[dict, float, float, int, str] | None:
                     if (c_id, m_id, t.id) in x:
                         model.add(x[(c_id, m_id, t.id)] == 0)
 
+    # 4d. Début pas avant → contrainte dure (aucun cours avant l'heure indiquée)
+    for (c_id, m_id), p_id in affectation.items():
+        if (c_id, m_id) not in besoins:
+            continue
+        assignments_one = [(c_id, m_id)]
+        for pref in prefs_by_prof_all.get(p_id, []):
+            if pref.type != "debut_pas_avant" or pref.priorite != "contrainte":
+                continue
+            _contrainte_debut_pas_avant(model, x, d, assignments_one, pref.valeur)
+
     # 5–6. Salles : spécial (fixe ou pool) ou repli standard par créneau
     y_spec: dict[tuple[str, str, str], cp_model.IntVar] = {}
     special_pairs: list[tuple[str, str]] = []
@@ -304,8 +316,10 @@ def resoudre(d: DonneesCollege) -> tuple[dict, float, float, int, str] | None:
         i = 0
         while i < len(prefs_p):
             pref_a = prefs_p[i]
-            is_jour_libre_dur = pref_a.type == "jour_libre" and pref_a.priorite == "contrainte"
-            if pref_a.type in _PREFS_DURES or pref_a.type == "grouper_cours" or is_jour_libre_dur:
+            is_pref_dure = pref_a.priorite == "contrainte" and pref_a.type in (
+                "jour_libre", "debut_pas_avant", "creneau_bloque",
+            )
+            if pref_a.type in _PREFS_DURES or pref_a.type == "grouper_cours" or is_pref_dure:
                 i += 1
                 continue
             poids  = POIDS.get(pref_a.priorite, 1)
@@ -465,5 +479,9 @@ def resoudre(d: DonneesCollege) -> tuple[dict, float, float, int, str] | None:
         else:
             sid = _premiere_salle_id(d, classes_by_id[c_id].etab_id, "standard")
         solution[c_id][t_id] = (m_id, p_id, sid)
+
+    msg_contraintes = message_contraintes_violees_apres_solve(dict(solution), d)
+    if msg_contraintes:
+        raise ValueError(msg_contraintes)
 
     return dict(solution), solver.objective_value, solver.wall_time, _num_propagations, status_name

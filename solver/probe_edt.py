@@ -13,7 +13,7 @@ from collections import defaultdict
 
 from solver.constants import NUM_SEARCH_WORKERS
 from solver.donnees import DonneesCollege, Preference
-from solver.prefs_cp import _contrainte_max_heures_consec
+from solver.prefs_cp import _contrainte_max_heures_consec, _contrainte_debut_pas_avant
 from solver.salles import (
     _matiere_salle_type,
     capacite_par_etab_type,
@@ -330,6 +330,10 @@ def _probe_edt_faisable(
                 if pref.type == "max_heures_consec" and pref.priorite == "contrainte":
                     _contrainte_max_heures_consec(
                         model, x, d, [(c_id, m_id)], int(pref.valeur)
+                    )
+                if pref.type == "debut_pas_avant" and pref.priorite == "contrainte":
+                    _contrainte_debut_pas_avant(
+                        model, x, d, [(c_id, m_id)], pref.valeur
                     )
 
     if salles and salle_assign is not None and cap_etab is not None:
