@@ -4,6 +4,13 @@ Reçoit les données en JSON, retourne le planning en HTML.
 
 Lancement (M4) :
     uv run uvicorn server:app --host 0.0.0.0 --port 8002
+
+Arrêt :
+    Ctrl+C dans le terminal, ou : lsof -ti :8002 | xargs kill
+
+Docker local :
+    docker run --rm -p 8002:8002 dnavatar/timetabler
+    docker stop $(docker ps -q --filter publish=8002)
 """
 
 from __future__ import annotations

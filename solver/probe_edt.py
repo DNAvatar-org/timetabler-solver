@@ -20,6 +20,162 @@ from solver.salles import (
     diagnostiquer_salles,
 )
 
+from solver.pre_assign import (
+    _hall_violateurs,
+    _niveaux_refuses_par_prof,
+    _profs_eligibles,
+    _slack_minimal_par_prof,
+    _suggestion_regroupement_classes,
+)
+from solver.diagnostic_core import diagnostiquer
+
+PIED_INFAISABILITE = (
+    "Avec ces pistes, le solveur a exploré toutes les combinaisons horaires "
+    "possibles dans ce cadre — aucune ne satisfait l'ensemble des contraintes dures."
+)
+
+
+def _lignes_contraintes_dures(d: DonneesCollege) -> list[str]:
+    lignes: list[str] = []
+    for pref in d.preferences:
+        if pref.priorite != "contrainte":
+            continue
+        p = d.profs.get(pref.prof_id)
+        nom = p.nom_complet if p else pref.prof_id
+        lignes.append(f"  • {nom} ({pref.prof_id}) — {pref.type} : {pref.valeur}")
+    for de in d.distances_etab:
+        paire = f"{de.etab_a}↔{de.etab_b}"
+        if de.regroupement_demi == "contrainte":
+            lignes.append(f"  • Distances {paire} : regroupement demi-journée (contrainte)")
+        if de.regroupement_jour == "contrainte":
+            lignes.append(f"  • Distances {paire} : regroupement journée entière (contrainte)")
+    return lignes
+
+
+def _besoins_liste(
+    d: DonneesCollege,
+    besoins: dict[tuple[str, str], int],
+) -> list[tuple[str, str, int, list[str]]]:
+    classes_by_id = {c.id: c for c in d.classes}
+    niveaux_refuses = _niveaux_refuses_par_prof(d)
+    out: list[tuple[str, str, int, list[str]]] = []
+    for (c_id, m_id), h in besoins.items():
+        c = classes_by_id[c_id]
+        elig = _profs_eligibles(d, c, m_id, niveaux_refuses)
+        out.append((c_id, m_id, h, elig))
+    return out
+
+
+def _lignes_profs_stress(
+    d: DonneesCollege,
+    besoins: dict[tuple[str, str], int] | None,
+    affectation: dict[tuple[str, str], str] | None,
+) -> list[str]:
+    import math
+
+    lignes: list[str] = []
+    for row in diagnostiquer(d):
+        if row["deficit_h"] <= 0:
+            continue
+        profs_noms = ", ".join(p["nom"] for p in row["profs"][:4])
+        doubles = [
+            f"{p['nom']} (+{','.join(p['partage'])})"
+            for p in row["profs"] if p.get("partage")
+        ][:3]
+        ligne = (
+            f"  • {row['matiere_nom']} ({row['matiere_id']}) : "
+            f"besoin {row['besoin_h']}h / capacité {row['capacite_h']}h "
+            f"(manque {row['deficit_h']}h)"
+        )
+        if profs_noms:
+            ligne += f" — {profs_noms}"
+        if doubles:
+            ligne += f" ; élargir double matière : {', '.join(doubles)}"
+        elif row["deficit_h"] > 0:
+            ligne += (
+                f" → embaucher ~{max(1, math.ceil(row['deficit_h'] / 18))} prof(s) "
+                f"ou ajouter un Combleur"
+            )
+        lignes.append(ligne)
+
+    if besoins:
+        besoins_list = _besoins_liste(d, besoins)
+        slack = _slack_minimal_par_prof(d, besoins_list)
+        for p_id, s in slack[:8]:
+            p = d.profs[p_id]
+            mats = ", ".join(p.matieres)
+            lignes.append(
+                f"  • {p.nom_complet} ({p_id}) [{mats}] : +{s}h au-delà du contrat "
+                f"({p.h_contrat}h) — augmenter le contrat ou élargir les matières"
+            )
+        hall = _hall_violateurs(d, besoins_list, max_groupes=4)
+        for h in hall:
+            if h.strip().startswith("("):
+                continue
+            lignes.append(h.replace("  →", "  •", 1))
+
+    if besoins and affectation:
+        for line in verifier_creneaux_profs_disponibles(d, affectation, besoins):
+            lignes.append(f"  • {line}")
+
+    return lignes
+
+
+def message_infaisabilite_structure(
+    d: DonneesCollege,
+    *,
+    affectation: dict[tuple[str, str], str] | None = None,
+    besoins: dict[tuple[str, str], int] | None = None,
+    cause: str | None = None,
+    extra_profs: list[str] | None = None,
+    salles_extra: str | None = None,
+) -> str:
+    """Message d'échec : cause, puis ① contraintes ② classes ③ profs, puis pied."""
+    parts: list[str] = []
+    if cause:
+        parts.append(cause)
+
+    contraintes = _lignes_contraintes_dures(d)
+    parts.append(
+        "① Contraintes (priorité « contrainte » — peuvent bloquer le solveur) :\n"
+        + (
+            "\n".join(contraintes)
+            if contraintes
+            else "  • Aucune préférence en contrainte dure — vérifier salles ou créneaux."
+        )
+    )
+
+    classes = _suggestion_regroupement_classes(d)
+    parts.append(
+        "② Classes — augmenter, regrouper ou supprimer des divisions :\n"
+        + (
+            "\n".join(classes)
+            if classes
+            else "  • Effectifs homogènes — pas de scission/regroupement évident."
+        )
+    )
+
+    if extra_profs:
+        corps_profs = "\n".join(extra_profs)
+    else:
+        auto = _lignes_profs_stress(d, besoins, affectation)
+        corps_profs = (
+            "\n".join(auto)
+            if auto
+            else "  • Capacité horaire globalement suffisante par matière."
+        )
+    parts.append(
+        "③ Professeurs — embaucher, augmenter un contrat ou double matière :\n"
+        + corps_profs
+    )
+
+    if salles_extra:
+        parts.append("Salles (complément) :\n" + salles_extra)
+
+    parts.append(PIED_INFAISABILITE)
+    return "\n\n".join(parts)
+
+
 def verifier_creneaux_profs_disponibles(
     d: DonneesCollege,
     affectation: dict[tuple[str, str], str],
@@ -241,9 +397,7 @@ def message_infaisable_resoudre(
     salle_assign: dict[tuple[str, str], str | None],
     cap_etab: dict[tuple[str, str], int],
 ) -> str:
-    """Message d'erreur CP-SAT : cause principale d'abord, salles en annexe."""
-    sections: list[str] = []
-
+    """Message d'erreur CP-SAT structuré : contraintes → classes → profs."""
     ok_profs = _probe_edt_faisable(
         d, affectation, besoins, prefs_dures=False, salles=False
     )
@@ -256,36 +410,39 @@ def message_infaisable_resoudre(
         salle_assign=salle_assign, cap_etab=cap_etab,
     )
 
+    cause: str | None = None
+    salles_extra: str | None = None
+
     if not ok_profs:
-        sections.append(
-            "Emploi du temps infaisable (profs / créneaux) :\n  \u2022 "
-            + "\n  \u2022 ".join(
-                diagnostiquer_creneaux_profs(d, affectation, besoins)
-            )
+        cause = (
+            "Cause immédiate : grille horaire / simultanéité insuffisante.\n  • "
+            + "\n  • ".join(diagnostiquer_creneaux_profs(d, affectation, besoins))
         )
     elif not ok_prefs:
-        sections.append(
-            "Emploi du temps infaisable — préférences en contrainte dure "
-            "(creneau_bloque, niveau_refuse, max_heures_consec, regroupement…) "
-            "ou regroupement inter-établissements."
+        cause = (
+            "Cause immédiate : préférences ou regroupements en contrainte dure "
+            "incompatibles avec le programme."
         )
     elif not ok_salles:
         bloquant, _info = diagnostiquer_salles(d, besoins)
-        sections.append(
-            "Emploi du temps infaisable — salles saturées par créneau :\n  \u2022 "
-            + "\n  \u2022 ".join(bloquant or ["capacité salle insuffisante à l'horaire"])
+        cause = "Cause immédiate : salles saturées par créneau."
+        salles_extra = "  • " + "\n  • ".join(
+            bloquant or ["capacité salle insuffisante à l'horaire"]
         )
     else:
-        sections.append(
-            "Emploi du temps infaisable — contraintes souples ou objectif "
-            "(essayez d'assouplir les préférences)."
+        cause = (
+            "Cause immédiate : contraintes souples ou objectif trop strict "
+            "(aucune grille ne satisfait toutes les pénalités)."
         )
 
     _bloquant, info_salles = diagnostiquer_salles(d, besoins)
-    if info_salles:
-        sections.append(
-            "Salles (repli automatique, non bloquant) :\n  \u2139 "
-            + "\n  \u2139 ".join(info_salles)
-        )
+    if info_salles and not salles_extra:
+        salles_extra = "  ℹ " + "\n  ℹ ".join(info_salles)
 
-    return "\n\n".join(sections)
+    return message_infaisabilite_structure(
+        d,
+        affectation=affectation,
+        besoins=besoins,
+        cause=cause,
+        salles_extra=salles_extra,
+    )

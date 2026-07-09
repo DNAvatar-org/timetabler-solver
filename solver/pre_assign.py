@@ -70,15 +70,21 @@ def _suggestion_regroupement_classes(d: DonneesCollege) -> list[str]:
     for niveau, effectifs in sorted(par_niveau.items()):
         total = sum(effectifs)
         n = len(effectifs)
-        if total <= 0 or n < 2:
-            continue  # effectifs non renseignés ou rien à regrouper
+        if total <= 0:
+            continue
         plafond = _plafond_usuel_classe(niveau)
+        moy = round(total / n)
         n_min = max(1, math.ceil(total / plafond))
-        if n_min < n:
+        if n >= 2 and n_min < n:
             suggestions.append(
-                f"  • {niveau} : {n} classes (~{round(total / n)} élèves/classe) "
-                f"→ {n_min} classes de ~{math.ceil(total / n_min)} "
-                f"(plafond usuel {plafond}) libère {(n - n_min)} division(s)"
+                f"  • {niveau} : {n} classes (~{moy} él./classe) "
+                f"→ regrouper en {n_min} classe(s) de ~{math.ceil(total / n_min)} "
+                f"(plafond usuel {plafond}) — supprimer {n - n_min} division(s)"
+            )
+        if moy > plafond and n_min > n:
+            suggestions.append(
+                f"  • {niveau} : classes surchargées (~{moy} él./classe, plafond {plafond}) "
+                f"→ scinder en {n_min} division(s) (augmenter le nombre de classes)"
             )
     return suggestions
 
@@ -104,18 +110,23 @@ def _erreur_staffing_impossible(
     d: DonneesCollege,
     hors_contrat: list[tuple[str, str, int, str]],
 ) -> str:
+    from solver.probe_edt import message_infaisabilite_structure
+
     classes_by_id = {c.id: c for c in d.classes}
-    lignes = []
+    extra_profs: list[str] = []
     for c_id, m_id, h, detail in hors_contrat:
         c = classes_by_id[c_id]
         mat = d.matieres[m_id].abrev if m_id in d.matieres else m_id
-        lignes.append(
+        extra_profs.append(
             f"  • {c.nom} ({c_id}), matière {mat} ({h}h) — {detail}"
         )
-    lignes.extend(_bloc_suggestion_regroupement(d))
-    return (
-        f"{len(hors_contrat)} cours non assignable(s) dans les limites du contrat horaire :\n"
-        + "\n".join(lignes)
+    cause = (
+        f"Cause immédiate : {len(hors_contrat)} cours non assignable(s) "
+        "dans les limites du contrat horaire."
+    )
+    return message_infaisabilite_structure(
+        d, affectation=None, besoins=None,
+        cause=cause, extra_profs=extra_profs,
     )
 
 
@@ -337,7 +348,20 @@ def _erreur_packing_contrats(
         lignes.append(
             "  Vérifiez les préférences niveau_refuse (contrainte) et etab_requis (contrainte)."
         )
-    return "\n".join(lignes)
+    from solver.probe_edt import message_infaisabilite_structure
+
+    besoins_dict = {(c, m): h for c, m, h, _ in besoins}
+    cause = "Cause immédiate : " + lignes[0]
+    if len(lignes) > 1:
+        cause += "\n" + lignes[1]
+    extra = lignes[2:] if len(lignes) > 2 else []
+    return message_infaisabilite_structure(
+        d,
+        affectation=None,
+        besoins=besoins_dict,
+        cause=cause,
+        extra_profs=extra or None,
+    )
 
 
 def _pre_assigner_profs_essai(
