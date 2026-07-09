@@ -68,15 +68,18 @@ _solve_busy = False  # True pendant qu'un CP-SAT tourne
 
 
 def _pop_demo_name(payload: dict) -> str | None:
-    """Extrait demo_name du body JSON (ex. demo_paris) sans passer à charger_donnees_dict."""
+    """Extrait demo_name du body JSON (ex. demo_paris) sans passer à charger_donnees_dict.
+
+    Le classeur voyage dans le body ; demo_name active seulement l'écriture
+    static/demo_*.{html,json} après solve/diagnostic (M4 ou localhost).
+    """
     name = payload.pop("demo_name", None)
     if name is None:
         return None
     name = str(name).strip()
     if not name.startswith("demo_"):
         raise ValueError(f"demo_name invalide : {name!r}")
-    if not (STATIC / f"{name}.xlsx").exists():
-        raise ValueError(f"{name}.xlsx introuvable dans static/")
+    STATIC.mkdir(parents=True, exist_ok=True)
     return name
 
 

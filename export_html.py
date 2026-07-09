@@ -487,7 +487,7 @@ def _grille_classe(c_id: str, c_nom: str, solution: dict, d, t_map: dict,
 <div class="tab-actions">
   <a class="btn-action" href="{csv_url}" download="{c_nom}.csv">📥 CSV</a>
   {xlsx_btn}
-  <button class="btn-action" onclick="printCurrentTab()">🖨 Imprimer</button>
+  <button class="btn-action" onclick="printCurrentTab()" data-tooltip="Imprimer l'onglet classe actif">🖨 Imprimer</button>
 </div>
 <table class="grille">
   <thead>{header}</thead>
@@ -900,7 +900,7 @@ def generer_html(solution: dict, d, output: Path, score: float = 0.0,
     <div class="section-title">👩‍🏫 Planning des professeurs</div>
     <div class="section-actions">
       {xlsx_profs_btn}
-      <button class="btn-action" onclick="printProfs()">🖨 Imprimer</button>
+      <button class="btn-action" onclick="printProfs()" data-tooltip="Imprimer le planning professeurs">🖨 Imprimer</button>
     </div>
     {_tableau_profs(solution, d, t_map, couleurs)}
   </div>
@@ -946,6 +946,7 @@ function printProfs() {{
   document.body.classList.remove('printing-profs');
 }}
 </script>
+<script src="https://dnavatar.org/_interfaces/kill-native-tooltip.js"></script>
 <script src="https://dnavatar.org/_interfaces/tooltips.js"></script>
 
 </body>
