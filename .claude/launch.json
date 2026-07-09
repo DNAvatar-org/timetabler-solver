@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "timetabler-static",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /private/tmp/timetabler-static && python3 -m http.server 8126 2>&1"],
+      "port": 8126
+    },
+    {
+      "name": "editor-static",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /private/tmp/timetabler-editor-preview && python3 -m http.server 8013 2>&1"],
+      "port": 8013
+    }
+  ]
+}

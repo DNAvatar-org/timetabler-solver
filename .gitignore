@@ -13,3 +13,9 @@ infeasible_example.py
 planning.html
 issue-code.sh
 create-password.sh
+DEPLOY.md
+timetabler-deploy.sh
+
+# Secrets mainteneur (jamais committer)
+.secrets/
+docker-hub.token
