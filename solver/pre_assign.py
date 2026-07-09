@@ -45,6 +45,61 @@ def _profs_eligibles(
     return out
 
 
+def _plafond_usuel_classe(niveau: str) -> int:
+    """Plafond usuel d'élèves par classe (pas de maximum légal national dans
+    le secondaire) : ~30 collège, ~35 lycée GT, 24 voie pro / CAP (ateliers)."""
+    n = niveau or ""
+    if "Pro" in n or "CAP" in n.upper():
+        return 24
+    if any(x in n for x in ("2nde", "1ère", "1ere", "Tle")):
+        return 35
+    return 30
+
+
+def _suggestion_regroupement_classes(d: DonneesCollege) -> list[str]:
+    """La vraie solution de terrain à un manque de profs : remplir les classes.
+    Supprimer une division libère TOUTES ses heures de programme d'un coup —
+    bien plus efficace qu'ajuster des contrats prof heure par heure.
+    Retourne les niveaux où les élèves tiendraient dans moins de classes."""
+    import math
+    par_niveau: dict[str, list[int]] = defaultdict(list)
+    for c in d.classes:
+        if not _est_combleur_classe(c):
+            par_niveau[c.niveau].append(c.nb_eleves or 0)
+    suggestions = []
+    for niveau, effectifs in sorted(par_niveau.items()):
+        total = sum(effectifs)
+        n = len(effectifs)
+        if total <= 0 or n < 2:
+            continue  # effectifs non renseignés ou rien à regrouper
+        plafond = _plafond_usuel_classe(niveau)
+        n_min = max(1, math.ceil(total / plafond))
+        if n_min < n:
+            suggestions.append(
+                f"  • {niveau} : {n} classes (~{round(total / n)} élèves/classe) "
+                f"→ {n_min} classes de ~{math.ceil(total / n_min)} "
+                f"(plafond usuel {plafond}) libère {(n - n_min)} division(s)"
+            )
+    return suggestions
+
+
+def _est_combleur_classe(c) -> bool:
+    """Pas de notion de classe-combleur aujourd'hui — hook conservé lisible."""
+    return False
+
+
+def _bloc_suggestion_regroupement(d: DonneesCollege) -> list[str]:
+    """Lignes à insérer EN PREMIÈRE suggestion des messages d'échec staffing."""
+    sugg = _suggestion_regroupement_classes(d)
+    if not sugg:
+        return []
+    return [
+        "\n  → D'abord : REMPLIR les classes existantes plutôt que toucher aux",
+        "  contrats — chaque division supprimée libère toutes ses heures :",
+        *sugg,
+    ]
+
+
 def _erreur_staffing_impossible(
     d: DonneesCollege,
     hors_contrat: list[tuple[str, str, int, str]],
@@ -57,6 +112,7 @@ def _erreur_staffing_impossible(
         lignes.append(
             f"  • {c.nom} ({c_id}), matière {mat} ({h}h) — {detail}"
         )
+    lignes.extend(_bloc_suggestion_regroupement(d))
     return (
         f"{len(hors_contrat)} cours non assignable(s) dans les limites du contrat horaire :\n"
         + "\n".join(lignes)
@@ -253,8 +309,9 @@ def _erreur_packing_contrats(
                     "les contrats horaires des profs enseignant plusieurs matières ne suffisent pas "
                     f"globalement (~{slack_total}h manquantes, voir ci-dessus)."
                 )
+                lignes.extend(_bloc_suggestion_regroupement(d))
                 lignes.append(
-                    f"\n  → Augmenter le contrat horaire du/des prof(s) listé(s), "
+                    f"\n  → Sinon : augmenter le contrat horaire du/des prof(s) listé(s), "
                     f"ou ajouter un {LIBELLE_COMBLEUR} (~{max(slack_total, 12)}–25h) "
                     f"sur les matières en tension."
                 )
@@ -265,8 +322,9 @@ def _erreur_packing_contrats(
                         "\n  Goulot de flux (Hall) — indicatif, pools mono-matière seulement :"
                     )
                     lignes.extend(hall)
+                    lignes.extend(_bloc_suggestion_regroupement(d))
                     lignes.append(
-                        "\n  Solution : augmenter le contrat horaire d'un prof du pool, "
+                        "\n  Sinon : augmenter le contrat horaire d'un prof du pool, "
                         f"ou ajouter un {LIBELLE_COMBLEUR}."
                     )
                 else:
