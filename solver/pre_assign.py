@@ -158,7 +158,7 @@ def _hall_violateurs(
 
     candidats.sort(key=lambda x: (-x[0], x[1]))
     lignes: list[str] = [
-        "  (Pools mono-matière uniquement — les profs AERO+MAINT etc. ne sont pas comptés.)",
+        "  (Pools mono-matière uniquement — les profs enseignant plusieurs matières ne sont pas comptés.)",
     ]
     for deficit, _size, mat_abrevs, prof_detail, nb in candidats[:max_groupes]:
         lignes.append(
@@ -250,7 +250,7 @@ def _erreur_packing_contrats(
             if slack_total:
                 lignes.append(
                     "\n  Les cours ont des remplaçants éligibles par matière, mais "
-                    "les contrats horaires des profs polyvalents (ex. AERO+MAINT) ne suffisent pas "
+                    "les contrats horaires des profs enseignant plusieurs matières ne suffisent pas "
                     f"globalement (~{slack_total}h manquantes, voir ci-dessus)."
                 )
                 lignes.append(
